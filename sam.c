@@ -3155,6 +3155,9 @@ static inline int cigar_iref2iseq_next(uint32_t **cigar, uint32_t *cigar_max, in
 
 static int tweak_overlap_quality(bam1_t *a, bam1_t *b)
 {
+    // pick strand pseudo-randomly to avoid a false strand bias
+    static int pick_strand = 0;
+
     uint32_t *a_cigar = bam_get_cigar(a), *a_cigar_max = a_cigar + a->core.n_cigar;
     uint32_t *b_cigar = bam_get_cigar(b), *b_cigar_max = b_cigar + b->core.n_cigar;
     int a_icig = 0, a_iseq = 0;
@@ -3199,12 +3202,36 @@ static int tweak_overlap_quality(bam1_t *a, bam1_t *b)
             #endif
             // we are very confident about this base
             int qual = a_qual[a_iseq] + b_qual[b_iseq];
-            a_qual[a_iseq] = qual>200 ? 200 : qual;
-            b_qual[b_iseq] = 0;
+            if ( (++pick_strand) % 2 )
+            {
+                a_qual[a_iseq] = 0;
+                b_qual[b_iseq] = qual>200 ? 200 : qual;
+            }
+            else
+            {
+                a_qual[a_iseq] = qual>200 ? 200 : qual;
+                b_qual[b_iseq] = 0;
+            }
         }
         else
         {
-            if ( a_qual[a_iseq] >= b_qual[b_iseq] )
+            if ( a_qual[a_iseq] == b_qual[b_iseq] )
+            {
+                #if DBG
+                    fprintf(stderr,"[%c/%c]",seq_nt16_str[bam_seqi(a_seq,a_iseq)],tolower_c(seq_nt16_str[bam_seqi(b_seq,b_iseq)]));
+                #endif
+                if ( (++pick_strand) % 2 )
+                {
+                    a_qual[a_iseq] = 0;
+                    b_qual[b_iseq] = 0.8 * b_qual[b_iseq];  // not so confident about a_qual anymore given the mismatch
+                }
+                else
+                {
+                    a_qual[a_iseq] = 0.8 * a_qual[a_iseq];  // not so confident about a_qual anymore given the mismatch
+                    b_qual[b_iseq] = 0;
+                }
+            }
+            else if ( a_qual[a_iseq] > b_qual[b_iseq] )
             {
                 #if DBG
                     fprintf(stderr,"[%c/%c]",seq_nt16_str[bam_seqi(a_seq,a_iseq)],tolower_c(seq_nt16_str[bam_seqi(b_seq,b_iseq)]));
